@@ -1,6 +1,9 @@
-import axios from "axios";
+
 import "dotenv/config";
+import express from "express";
+import axios from "axios";
 import { Telegraf, Context, session } from "telegraf";
+import { logger } from "./logger.js";
 
 interface SessionData {
   token?: string;
@@ -10,35 +13,24 @@ interface MyContext extends Context {
   session: SessionData;
 }
 
-const token = process.env.BOT_TOKEN;
-if (!token) {
-  throw new Error("BOT_TOKEN is missing. Set it in .env or your environment.");
+const BOT_TOKEN = process.env.BOT_TOKEN;
+if (!BOT_TOKEN) {
+  throw new Error("BOT_TOKEN is missing.");
 }
 
-const bot = new Telegraf<MyContext>(token);
+const WEBHOOK_URL = process.env.WEBHOOK_URL;
+if (!WEBHOOK_URL) {
+  throw new Error("WEBHOOK_URL is missing.");
+}
 
+const PORT = Number(process.env.PORT) || 3000;
+
+const bot = new Telegraf<MyContext>(BOT_TOKEN);
 bot.use(session());
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const verifyTelegramConnection = async () => {
-  const attempts = 3;
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      await bot.telegram.getMe();
-      return;
-    } catch (error) {
-      if (attempt === attempts) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(
-          `Unable to reach Telegram API after ${attempts} attempts. ${message}`
-        );
-      }
-
-      await wait(1000 * attempt);
-    }
-  }
-};
+/* =========================
+   BOT HANDLERS
+========================= */
 
 bot.start(async (ctx) => {
   const user = ctx.from;
@@ -53,35 +45,69 @@ bot.start(async (ctx) => {
     );
 
     const token = response.data.token;
-    console.log(`Generated token for user ${user.username}: ${token}`);
-
     ctx.session = { token };
 
     if (response.status === 201) {
-      ctx.reply(`Welcome, ${user.first_name}! Your account has been created.`);
+      await ctx.reply(
+        `Welcome, ${user.first_name}! Your account has been created. 🎉`
+      );
     } else {
-      ctx.reply(`Welcome back, ${user.first_name}!`);
+      await ctx.reply(`Welcome back, ${user.first_name}!`);
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("Login request failed:", message);
-    ctx.reply("Login failed. Please try again in a moment.");
+    const message =
+      error instanceof Error ? error.message : String(error);
+    logger.error(`Login request failed: ${message}`);
+    await ctx.reply("Login failed. Please try again later.");
   }
-
-//   ctx.reply(`Welcome, ${firstName}! Send any message and I will echo it back.`);
 });
 
-bot.on("text", (ctx) => {
-  ctx.reply(`Echo: ${ctx.message.text}`);
+bot.on("text", async (ctx) => {
+  await ctx.reply(`Echo: ${ctx.message.text}`);
 });
 
-verifyTelegramConnection()
-  .then(() => bot.launch())
-  .catch((error) => {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(message);
-    process.exitCode = 1;
-  });
+/* =========================
+   EXPRESS SERVER
+========================= */
+
+const app = express();
+app.use(express.json());
+
+app.post("/telegram/webhook", async (req, res) => {
+  try {
+    await bot.handleUpdate(req.body);
+    res.sendStatus(200);
+  } catch (error) {
+    logger.error("Webhook handling error");
+    res.sendStatus(500);
+  }
+});
+
+app.get("/", (_req, res) => {
+  res.send("Bot is running.");
+});
+
+/* =========================
+   START SERVER
+========================= */
+
+app.listen(PORT, async () => {
+  logger.info(`Server running on port ${PORT}`);
+
+  try {
+    // Set webhook to Render URL
+    await bot.telegram.setWebhook(`${WEBHOOK_URL}/telegram/webhook`);
+    logger.info("Webhook successfully set.");
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : String(error);
+    logger.error(`Failed to set webhook: ${message}`);
+  }
+});
+
+/* =========================
+   GRACEFUL SHUTDOWN
+========================= */
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
