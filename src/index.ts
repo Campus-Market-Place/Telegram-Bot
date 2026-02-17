@@ -39,10 +39,15 @@ bot.start(async (ctx) => {
     const response = await axios.post(
       "https://backend-ikou.onrender.com/auth/login",
       {
+     /*    telegram_username: user.username,
+        telegram_id: user.id */
         telegram_username: user.username,
-        telegram_id: user.id
+        telegram_id: String(user.id)
       }
     );
+ 
+    logger.warn(`Login response: ${response.status} - ${JSON.stringify(response.data)}`);
+
 
     const token = response.data.token;
     ctx.session = { token };
