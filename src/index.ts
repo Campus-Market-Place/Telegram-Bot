@@ -34,6 +34,7 @@ bot.use(session());
 
 bot.start(async (ctx) => {
   const user = ctx.from;
+  const chatId = ctx.chat.id; // ✅ THIS IS WHAT YOU NEED TO SEND MESSAGES LATER
 
   try {
     const response = await axios.post(
@@ -41,8 +42,10 @@ bot.start(async (ctx) => {
       {
      /*    telegram_username: user.username,
         telegram_id: user.id */
+     
         telegram_username: user.username,
-        telegram_id: String(user.id)
+        telegram_id: String(user.id),
+        telegram_chat_id: String(chatId)
       }
     );
  
